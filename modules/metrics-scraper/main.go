@@ -140,7 +140,9 @@ func update(client *metricsclient.Clientset, db *sql.DB, metricDuration time.Dur
 	}
 
 	// DCGM Metrics should be collected from the DCGM Exporter via:
-	dcgmMetrics := &dcgm.DCGMMetricList{}
+	dcgmMetrics := &dcgm.DCGMMetricList{
+		Metrics: []dcgm.DCGMMetric{},
+	}
 	if dcgmCollector != nil {
 		dcgmMetrics, err = dcgmCollector.CollectMetrics()
 		if err != nil {
@@ -162,6 +164,6 @@ func update(client *metricsclient.Clientset, db *sql.DB, metricDuration time.Dur
 		return err
 	}
 
-	klog.Infof("Database updated: %d nodes, %d pods", len(nodeMetrics.Items), len(podMetrics.Items))
+	klog.Infof("Database updated: %d nodes, %d pods, %d dcgm metrics", len(nodeMetrics.Items), len(podMetrics.Items), len(dcgmMetrics.Metrics))
 	return nil
 }

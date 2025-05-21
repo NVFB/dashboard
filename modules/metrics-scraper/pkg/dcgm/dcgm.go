@@ -95,25 +95,26 @@ func NewCollector(config *rest.Config, serviceEndpoint string) *Collector {
 
 // CollectMetrics collects DCGM metrics for all GPUs
 func (c *Collector) CollectMetrics() (*DCGMMetricList, error) {
+	metrics := &DCGMMetricList{}
 	// Call the kubernetes API to get the metrics
-	res := c.client.CoreV1().RESTClient().Get().
+	// /api/v1/namespaces/<c.namespace>/services/<c.service>:<c.port>/proxy/<c.suffix>
+	req := c.client.CoreV1().RESTClient().Get().
 		Namespace(c.namespace).
-		Resource("pods").
+		Resource("services").
 		Name(c.service + ":" + c.port).
 		SubResource("proxy").
-		Suffix(c.suffix).
-		Do(context.Background())
+		Suffix(c.suffix)
+	res := req.Do(context.Background())
 	// Get the raw response
 	resp, err := res.Raw()
-	klog.Infof("Response: %#v", resp)
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to get metrics from DCGM exporter: %w", err)
+		return metrics, fmt.Errorf("failed to get metrics from DCGM exporter: %w", err)
 	}
 
-	metrics, err := parseMetrics(string(resp))
+	metrics, err = parseMetrics(string(resp))
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse metrics: %w", err)
+		return metrics, fmt.Errorf("failed to parse metrics: %w", err)
 	}
 
 	return metrics, nil
