@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"time"
 
+	"k8s.io/dashboard/metrics-scraper/pkg/dcgm"
 	"k8s.io/klog/v2"
 	"k8s.io/metrics/pkg/apis/metrics/v1beta1"
 
@@ -32,6 +33,20 @@ func CreateDatabase(db *sql.DB) error {
 	sqlStmt := `
 	create table if not exists nodes (uid text, name text, cpu text, memory text, storage text, time datetime);
 	create table if not exists pods (uid text, name text, namespace text, container text, cpu text, memory text, storage text, time datetime);
+	create table if not exists dcgm_metrics (
+		uuid text,
+		name text,
+		namespace text,
+		pod text,
+		container text,
+		gpu text,
+		pci_bus_id text,
+		device text,
+		hostname text,
+		driver_version text,
+		value integer,
+		time datetime
+	);
 	`
 	_, err := db.Exec(sqlStmt)
 	if err != nil {
@@ -44,7 +59,7 @@ func CreateDatabase(db *sql.DB) error {
 /*
 UpdateDatabase updates nodeMetrics and podMetrics with scraped data
 */
-func UpdateDatabase(db *sql.DB, nodeMetrics *v1beta1.NodeMetricsList, podMetrics *v1beta1.PodMetricsList) error {
+func UpdateDatabase(db *sql.DB, nodeMetrics *v1beta1.NodeMetricsList, podMetrics *v1beta1.PodMetricsList, dcgmMetrics *dcgm.DCGMMetricList) error {
 	tx, err := db.Begin()
 	if err != nil {
 		return err
@@ -74,6 +89,19 @@ func UpdateDatabase(db *sql.DB, nodeMetrics *v1beta1.NodeMetricsList, podMetrics
 			if err != nil {
 				return err
 			}
+		}
+	}
+
+	stmt, err = tx.Prepare("insert into dcgm_metrics(uuid, name, namespace, pod, container, gpu, pci_bus_id, device, hostname, driver_version, value, time) values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, v := range dcgmMetrics.Metrics {
+		_, err = stmt.Exec(v.UUID, v.Name, v.Namespace, v.Pod, v.Container, v.GPU, v.PCIBusID, v.Device, v.Hostname, v.DriverVer, v.Value)
+		if err != nil {
+			return err
 		}
 	}
 
@@ -140,3 +168,53 @@ func CullDatabase(db *sql.DB, window time.Duration) error {
 
 	return nil
 }
+
+// UpdateDCGMMetrics updates the database with DCGM metrics
+// func UpdateDCGMMetrics(db *sql.DB, metrics dcgm.DCGMMetricDCGMMetric) error {
+// 	tx, err := db.Begin()
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	stmt, err := tx.Prepare(`
+// 		insert into dcgm_metrics(
+// 			uid, name, namespace, container, gpu_id,
+// 			gpu_utilization, memory_utilization, memory_used, memory_total,
+// 			power_usage, temperature, time
+// 		) values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+// 	`)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	defer stmt.Close()
+
+// 	for _, metric := range metrics {
+// 		_, err = stmt.Exec(
+// 			metric.UID,
+// 			metric.Name,
+// 			metric.Namespace,
+// 			metric.Container,
+// 			metric.GPUId,
+// 			metric.GPUUtilization,
+// 			metric.MemoryUtilization,
+// 			metric.MemoryUsed,
+// 			metric.MemoryTotal,
+// 			metric.PowerUsage,
+// 			metric.Temperature,
+// 		)
+// 		if err != nil {
+// 			return err
+// 		}
+// 	}
+
+// 	err = tx.Commit()
+// 	if err != nil {
+// 		rberr := tx.Rollback()
+// 		if rberr != nil {
+// 			return rberr
+// 		}
+// 		return err
+// 	}
+
+// 	return nil
+// }

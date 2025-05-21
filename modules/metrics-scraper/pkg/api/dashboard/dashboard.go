@@ -33,6 +33,7 @@ import (
 func DashboardRouter(r *mux.Router, db *sql.DB) {
 	r.Path("/nodes/{Name}/metrics/{MetricName}/{Whatever}").HandlerFunc(nodeHandler(db))
 	r.Path("/namespaces/{Namespace}/pod-list/{Name}/metrics/{MetricName}/{Whatever}").HandlerFunc(podHandler(db))
+	r.Path("/dcgm").HandlerFunc(dcgmHandler(db))
 	r.PathPrefix("/").HandlerFunc(defaultHandler)
 }
 
@@ -299,4 +300,108 @@ func getNodeMetrics(db *sql.DB, metricName string, selector ResourceSelector) (S
 	}
 
 	return result, nil
+}
+
+// @TODO: Fix this for the new DCGM metrics
+// dcgmHandler: With a database connection and a resource selector
+// Queries SQLite and returns a list of metrics.
+func dcgmHandler(db *sql.DB) http.HandlerFunc {
+
+	fn := func(w http.ResponseWriter, r *http.Request) {
+		vars := mux.Vars(r)
+
+		resp, err := getDCGMMetrics(db, vars["MetricName"], ResourceSelector{
+			Namespace:    vars["Namespace"],
+			ResourceName: vars["Name"],
+		})
+
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, err := w.Write([]byte(fmt.Sprintf("DCGM Metrics Error - %v", err.Error())))
+			if err != nil {
+				klog.Errorf("Error cannot write response: %v", err)
+			}
+		}
+
+		j, err := json.Marshal(resp)
+
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, err := w.Write([]byte(fmt.Sprintf("JSON Error - %v", err.Error())))
+			if err != nil {
+				klog.Errorf("Error cannot write response: %v", err)
+			}
+		}
+
+		_, err = w.Write(j)
+		if err != nil {
+			klog.Errorf("Error cannot write response: %v", err)
+		}
+	}
+
+	return fn
+}
+
+func getDCGMMetrics(db *sql.DB, metricName string, selector ResourceSelector) (SidecarMetricResultList, error) {
+	rows, err := getRows(db, "dcgm_metrics", metricName, selector)
+	if err != nil {
+		klog.Errorf("Error getting DCGM metrics: %v", err)
+		return SidecarMetricResultList{}, err
+	}
+
+	defer rows.Close()
+
+	resultList := make(map[string]SidecarMetric)
+
+	for rows.Next() {
+		var metricValue string
+		var pod string
+		var metricTime string
+		var uid string
+		var newMetric MetricPoint
+		err = rows.Scan(&metricValue, &pod, &uid, &metricTime)
+		if err != nil {
+			return SidecarMetricResultList{}, err
+		}
+
+		layout := "2006-01-02T15:04:05Z"
+		t, err := time.Parse(layout, metricTime)
+		if err != nil {
+			return SidecarMetricResultList{}, err
+		}
+
+		v, err := strconv.ParseUint(metricValue, 10, 64)
+		if err != nil {
+			return SidecarMetricResultList{}, err
+		}
+
+		newMetric = MetricPoint{
+			Timestamp: t,
+			Value:     v,
+		}
+
+		if _, ok := resultList[pod]; ok {
+			metricThing := resultList[pod]
+			metricThing.AddMetricPoint(newMetric)
+			resultList[pod] = metricThing
+		} else {
+			resultList[pod] = SidecarMetric{
+				MetricName:   metricName,
+				MetricPoints: []MetricPoint{newMetric},
+				DataPoints:   []DataPoint{},
+			}
+		}
+	}
+	err = rows.Err()
+	if err != nil {
+		return SidecarMetricResultList{}, err
+	}
+
+	result := SidecarMetricResultList{}
+	for _, v := range resultList {
+		result.Items = append(result.Items, v)
+	}
+
+	return result, nil
+
 }

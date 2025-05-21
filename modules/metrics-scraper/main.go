@@ -28,6 +28,7 @@ import (
 	"k8s.io/dashboard/metrics-scraper/pkg/api"
 	"k8s.io/dashboard/metrics-scraper/pkg/args"
 	"k8s.io/dashboard/metrics-scraper/pkg/database"
+	"k8s.io/dashboard/metrics-scraper/pkg/dcgm"
 	"k8s.io/dashboard/metrics-scraper/pkg/environment"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -50,6 +51,7 @@ func main() {
 
 	klog.Infof("Kubernetes host: %s", config.Host)
 	klog.Infof("Namespace(s): %s", args.MetricNamespaces())
+	klog.Infof("DCGM Endpoint: %s", args.DCGMExporter())
 
 	// Generate the metrics client
 	clientset, err := metricsclient.NewForConfig(config)
@@ -68,6 +70,13 @@ func main() {
 	err = database.CreateDatabase(db)
 	if err != nil {
 		klog.Fatalf("Unable to initialize database tables: %s", err)
+	}
+
+	// Initialize DCGM collector if DCGM metrics are enabled
+	// this should use the namespace flag
+	var dcgmCollector *dcgm.Collector
+	if args.DCGMExporter() != "" {
+		dcgmCollector = dcgm.NewCollector(config, args.DCGMExporter())
 	}
 
 	go func() {
@@ -89,7 +98,7 @@ func main() {
 			return
 
 		case <-ticker.C:
-			err = update(clientset, db, args.MetricDuration(), args.MetricNamespaces())
+			err = update(clientset, db, args.MetricDuration(), args.MetricNamespaces(), dcgmCollector)
 			if err != nil {
 				break
 			}
@@ -98,9 +107,9 @@ func main() {
 }
 
 /**
-* Update the Node and Pod metrics in the provided DB
+* Update the Node, Pod, and DCGM metrics in the provided DB
  */
-func update(client *metricsclient.Clientset, db *sql.DB, metricDuration time.Duration, metricNamespaces []string) error {
+func update(client *metricsclient.Clientset, db *sql.DB, metricDuration time.Duration, metricNamespaces []string, dcgmCollector *dcgm.Collector) error {
 	nodeMetrics := &v1beta1.NodeMetricsList{}
 	podMetrics := &v1beta1.PodMetricsList{}
 	ctx := context.TODO()
@@ -116,6 +125,8 @@ func update(client *metricsclient.Clientset, db *sql.DB, metricDuration time.Dur
 		}
 	}
 
+	klog.Infof("Node metrics Namespaces: %#v", metricNamespaces)
+
 	// List pod metrics across the cluster, or for a given namespace
 	for _, namespace := range metricNamespaces {
 		pod, err := client.MetricsV1beta1().PodMetricses(namespace).List(ctx, v1.ListOptions{})
@@ -128,8 +139,17 @@ func update(client *metricsclient.Clientset, db *sql.DB, metricDuration time.Dur
 		podMetrics.Items = append(podMetrics.Items, pod.Items...)
 	}
 
+	// DCGM Metrics should be collected from the DCGM Exporter via:
+	dcgmMetrics := &dcgm.DCGMMetricList{}
+	if dcgmCollector != nil {
+		dcgmMetrics, err = dcgmCollector.CollectMetrics()
+		if err != nil {
+			klog.Errorf("Error collecting DCGM metrics: %s", err)
+		}
+	}
+
 	// Insert scrapes into DB
-	err = database.UpdateDatabase(db, nodeMetrics, podMetrics)
+	err = database.UpdateDatabase(db, nodeMetrics, podMetrics, dcgmMetrics)
 	if err != nil {
 		klog.Errorf("Error updating database: %s", err)
 		return err

@@ -17,30 +17,56 @@ root = "."
 tmp_dir = ".tmp"
 
 [build]
-  cmd = "CGO_ENABLED=0 go build -o .tmp/metrics-scraper ."
-  bin = ".tmp/metrics-scraper"
-  delay = 2000
-  exclude_dir = ["hack"]
-  exclude_file = []
-  exclude_regex = []
-  exclude_unchanged = false
-  include_file = ["main.go"]
-  follow_symlink = false
-  full_bin = ""
-  include_ext = ["go"]
-  kill_delay = "1s"
-  log = "build-errors.log"
-  stop_on_error = true
+cmd = "CGO_ENABLED=0 go build -o .tmp/metrics-scraper ."
+bin = ".tmp/metrics-scraper"
+delay = 2000
+exclude_dir = ["hack"]
+exclude_file = []
+exclude_regex = []
+exclude_unchanged = false
+include_file = ["main.go"]
+follow_symlink = false
+full_bin = ""
+include_ext = ["go"]
+kill_delay = "1s"
+log = "build-errors.log"
+stop_on_error = true
+## Args for the metrics-scraper
+# --add_dir_header                   If true, adds the file directory to the header of the log messages
+# --alsologtostderr                  log to standard error as well as files (no effect when -logtostderr=true)
+# --db-file string                   What file to use as a SQLite3 database. (default "/tmp/metrics.db")
+# --dcgm-metrics duration            Capture DCGM metrics and store them in the database. (default 15m0s)
+# --kubeconfig string                The path to the kubeconfig used to connect to the Kubernetes API server and the Kubelets (defaults to in-cluster config)
+# --log_backtrace_at traceLocation   when logging hits line file:N, emit a stack trace (default :0)
+# --log_dir string                   If non-empty, write log files in this directory (no effect when -logtostderr=true)
+# --log_file string                  If non-empty, use this log file (no effect when -logtostderr=true)
+# --log_file_max_size uint           Defines the maximum size a log file can grow to (no effect when -logtostderr=true). Unit is megabytes. If the value is 0, the maximum file size is unlimited. (default 1800)
+# --logtostderr                      log to standard error instead of files (default true)
+# --metric-duration duration         The duration after which metrics are purged from the database. (default 15m0s)
+# --metric-resolution duration       The resolution at which dashboard-metrics-scraper will poll metrics. (default 1m0s)
+# --namespaces strings               The namespaces to use for all metric calls. When provided, skip node metrics. (defaults to cluster level metrics)
+# --one_output                       If true, only write logs to their native severity level (vs also writing to each lower severity level; no effect when -logtostderr=true)
+# --skip_headers                     If true, avoid header prefixes in the log messages
+# --skip_log_headers                 If true, avoid headers when opening log files (no effect when -logtostderr=true)
+# --stderrthreshold severity         logs at or above this threshold go to stderr when writing to files and stderr (no effect when -logtostderr=true or -alsologtostderr=true) (default 2)
+# --v Level                          number for the log level verbosity
+# --vmodule moduleSpec               comma-separated list of pattern=N settings for file-filtered logging
+args_bin = [
+    "--dcgm-service-endpoint",
+    "gpu-operator/nvidia-dcgm-exporter:9400/metrics",
+    "--kubeconfig",
+    "~/.kube/config",
+]
 
 [color]
-  app = ""
-  build = "yellow"
-  main = "magenta"
-  runner = "green"
-  watcher = "cyan"
+app = ""
+build = "yellow"
+main = "magenta"
+runner = "green"
+watcher = "cyan"
 
 [log]
-  time = false
+time = false
 
 [misc]
-  clean_on_exit = true
+clean_on_exit = true

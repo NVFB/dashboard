@@ -28,6 +28,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	"k8s.io/dashboard/metrics-scraper/pkg/database"
+	"k8s.io/dashboard/metrics-scraper/pkg/dcgm"
 )
 
 func TestMetricsUtil(t *testing.T) {
@@ -75,6 +76,29 @@ func podMetrics() v1beta1.PodMetricsList {
 	return nm
 }
 
+// Mock output from the DCGM Exporter
+func dcgmMetrics() dcgm.DCGMMetricList {
+	tmp := dcgm.DCGMMetric{}
+	tmp.Name = "DCGM_FI_DEV_GPU_UTIL"
+	tmp.GPU = "0"
+	tmp.UUID = "GPU-a1b2c3d4-e5f6-7890-ab12-cd34ef56gh78"
+	tmp.PCIBusID = "00000000:04:00.0"
+	tmp.Device = "nvidia0"
+	tmp.ModelName = "NVIDIA H100 80GB HBM3"
+	tmp.Hostname = "gke-wfqzck45-default-pool-dxt8"
+	tmp.DriverVer = "550.144.03"
+	tmp.Container = "app"
+	tmp.Namespace = "default"
+	tmp.Pod = "jupyter-notebook-7f2c4b8d"
+	tmp.Value = 90
+
+	dcgmMetrics := dcgm.DCGMMetricList{
+		Metrics: []dcgm.DCGMMetric{tmp},
+	}
+
+	return dcgmMetrics
+}
+
 var _ = ginkgo.Describe("Database functions", func() {
 	ginkgo.Context("With an in-memory database", func() {
 		ginkgo.It("should generate 'nodes' table to dump metrics in.", func() {
@@ -116,6 +140,25 @@ var _ = ginkgo.Describe("Database functions", func() {
 			gomega.Expect(err).To(gomega.BeNil())
 		})
 
+		ginkgo.It("should generate 'dcgm' table to dump metrics in.", func() {
+			db, err := sql.Open("sqlite", ":memory:")
+			if err != nil {
+				panic(err.Error())
+			}
+			defer db.Close()
+
+			err = database.CreateDatabase(db)
+			if err != nil {
+				panic(err.Error())
+			}
+
+			_, err = db.Query("select * from dcgm;")
+			if err != nil {
+				panic(err.Error())
+			}
+			gomega.Expect(err).To(gomega.BeNil())
+		})
+
 		ginkgo.It("should insert metrics into the database.", func() {
 			db, err := sql.Open("sqlite", ":memory:")
 			if err != nil {
@@ -130,8 +173,9 @@ var _ = ginkgo.Describe("Database functions", func() {
 
 			nm := nodeMetrics()
 			pm := podMetrics()
+			dm := dcgmMetrics()
 
-			err = database.UpdateDatabase(db, &nm, &pm)
+			err = database.UpdateDatabase(db, &nm, &pm, &dm)
 			if err != nil {
 				panic(err.Error())
 			}
@@ -179,6 +223,29 @@ var _ = ginkgo.Describe("Database functions", func() {
 				gomega.Expect(cpu).To(gomega.Equal(testCpu.MilliValue()))
 				gomega.Expect(memory).To(gomega.Equal(testMemory.MilliValue() / 1000))
 			}
+
+			rows, err = db.Query("select name, gpu, model_name, driver_version, value from dcgm")
+			if err != nil {
+				log.Fatal(err)
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var name string
+				var gpu string
+				var modelName string
+				var driverVersion string
+				var value int64
+				err = rows.Scan(&name, &gpu, &modelName, &driverVersion, &value)
+				if err != nil {
+					log.Fatal(err)
+				}
+				gomega.Expect(err).To(gomega.BeNil())
+				gomega.Expect(name).To(gomega.Equal("DCGM_FI_DEV_GPU_UTIL"))
+				gomega.Expect(gpu).To(gomega.Equal("0"))
+				gomega.Expect(modelName).To(gomega.Equal("NVIDIA H100 80GB HBM3"))
+				gomega.Expect(driverVersion).To(gomega.Equal("550.144.03"))
+				gomega.Expect(value).To(gomega.Equal(90))
+			}
 		})
 		ginkgo.It("should cull the database based on a window.", func() {
 			db, err := sql.Open("sqlite", ":memory:")
@@ -194,8 +261,9 @@ var _ = ginkgo.Describe("Database functions", func() {
 
 			nm := nodeMetrics()
 			pm := podMetrics()
+			dm := dcgmMetrics()
 
-			err = database.UpdateDatabase(db, &nm, &pm)
+			err = database.UpdateDatabase(db, &nm, &pm, &dm)
 			if err != nil {
 				panic(err.Error())
 			}

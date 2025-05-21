@@ -41,6 +41,7 @@ var (
 	argDBFile           = pflag.String("db-file", "/tmp/metrics.db", "What file to use as a SQLite3 database.")
 	argMetricResolution = pflag.Duration("metric-resolution", 1*time.Minute, "The resolution at which dashboard-metrics-scraper will poll metrics.")
 	argMetricDuration   = pflag.Duration("metric-duration", 15*time.Minute, "The duration after which metrics are purged from the database.")
+	argDCGMExporter     = pflag.String("dcgm-service-endpoint", "", "The Service Endpoint for the DCGM Exporter metrics. Format: gpu-operator/nvidia-dcgm-exporter:9400/metrics")
 	// When running in a scoped namespace, disable Node lookup and only capture metrics for the given namespace(s)
 	argMetricNamespaces = pflag.StringSlice("namespaces", []string{helpers.GetEnv("POD_NAMESPACE", "")}, "The namespaces to use for all metric calls. When provided, skip node metrics. (defaults to cluster level metrics)")
 )
@@ -68,6 +69,10 @@ func MetricResolution() time.Duration {
 
 func MetricDuration() time.Duration {
 	return *argMetricDuration
+}
+
+func DCGMExporter() string {
+	return *argDCGMExporter
 }
 
 func MetricNamespaces() []string {
